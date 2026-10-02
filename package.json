@@ -1,0 +1,17 @@
+{
+  "name": "ai-gateway-server",
+  "version": "1.0.0",
+  "description": "Secure AI API Gateway and Streaming Proxy for Local LLM (Qwen2.5-VL)",
+  "main": "src/server.js",
+  "type": "module",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "express-rate-limit": "^7.5.0"
+  }
+}
