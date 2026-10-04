@@ -90,15 +90,48 @@ export const keysController = {
           backendUrl: config.llmBackendUrl,
           models: data.data || []
         });
-      } else {
+      }
+
+      // Nếu /models trả về 404, thử kiểm tra endpoint chat/completions (thường gặp ở server tự build)
+      if (response.status === 404) {
+        try {
+          const chatEndpoint = `${config.llmBackendUrl}/chat/completions`;
+          const chatCheck = await fetch(chatEndpoint, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({})
+          });
+
+          // Nếu trả về 400, 422 (FastAPI validation error) hoặc 200/405 => Server model đang chạy!
+          if (chatCheck.status === 400 || chatCheck.status === 422 || chatCheck.status === 200 || chatCheck.status === 405) {
+            return res.json({
+              status: 'online',
+              latencyMs,
+              backendUrl: config.llmBackendUrl,
+              message: 'Máy chủ model đang hoạt động tốt (không có endpoint /models, đã xác thực qua /chat/completions)',
+              models: [{ id: config.defaultModel }]
+            });
+          }
+        } catch {
+          // Bỏ qua lỗi fallback
+        }
+
         return res.status(502).json({
           status: 'error',
-          statusCode: response.status,
+          statusCode: 404,
           latencyMs,
-          message: `Local LLM trả về mã lỗi HTTP ${response.status}`,
+          message: `Local LLM tại ${config.llmBackendUrl} trả về 404 Not Found. Vui lòng kiểm tra lại cổng và đường dẫn LLM_BACKEND_URL trong file server/.env.`,
           backendUrl: config.llmBackendUrl
         });
       }
+
+      return res.status(502).json({
+        status: 'error',
+        statusCode: response.status,
+        latencyMs,
+        message: `Local LLM trả về mã lỗi HTTP ${response.status}`,
+        backendUrl: config.llmBackendUrl
+      });
     } catch (err) {
       const latencyMs = Date.now() - startTime;
       return res.status(503).json({

@@ -7,12 +7,16 @@ import { config } from '../config.js';
 export function apiKeyAuth(req, res, next) {
   let rawKey = null;
 
-  // Hỗ trợ cả Authorization header (Bearer sk-...) và x-api-key
+  // Hỗ trợ Authorization header (Bearer sk-...), x-api-key và query param (?api_key= hoặc ?key=)
   const authHeader = req.headers['authorization'];
   if (authHeader && authHeader.startsWith('Bearer ')) {
     rawKey = authHeader.slice(7).trim();
   } else if (req.headers['x-api-key']) {
     rawKey = req.headers['x-api-key'].trim();
+  } else if (req.query?.api_key) {
+    rawKey = String(req.query.api_key).trim();
+  } else if (req.query?.key) {
+    rawKey = String(req.query.key).trim();
   }
 
   if (!rawKey) {
@@ -57,7 +61,10 @@ export function apiKeyAuth(req, res, next) {
  * Middleware kiểm tra quyền Quản trị viên (Admin) cho việc cấp/thu hồi Key
  */
 export function adminAuth(req, res, next) {
-  const adminSecret = req.headers['x-admin-key'] || (req.headers['authorization']?.startsWith('Bearer ') ? req.headers['authorization'].slice(7).trim() : null);
+  const adminSecret = req.headers['x-admin-key'] ||
+    (req.headers['authorization']?.startsWith('Bearer ') ? req.headers['authorization'].slice(7).trim() : null) ||
+    req.query?.admin_key ||
+    req.query?.key;
 
   if (!adminSecret || adminSecret !== config.masterAdminKey) {
     return res.status(403).json({

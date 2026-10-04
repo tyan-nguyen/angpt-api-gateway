@@ -53,17 +53,19 @@ export const proxyController = {
     const targetUrl = `${config.llmBackendUrl}/chat/completions`;
     const abortController = new AbortController();
 
-    // Hủy request đến LLM nếu client ngắt kết nối giữa chừng (bảo vệ GPU)
-    req.on('close', () => {
+    // Hủy request đến LLM CHỈ KHI client thực sự ngắt kết nối (res.on('close'))
+    res.on('close', () => {
       if (!res.writableEnded) {
         abortController.abort();
       }
     });
 
-    // Timeout 15 giây nếu không kết nối được đến Local LLM
+    // Timeout 5 phút nếu không nhận được phản hồi từ Local LLM (phù hợp với tác vụ suy luận GPU/CPU)
+    let timedOut = false;
     const connectTimeout = setTimeout(() => {
-      abortController.abort(new Error('TIMEOUT_CONNECT'));
-    }, 15000);
+      timedOut = true;
+      abortController.abort(new Error('TIMEOUT_LLM'));
+    }, 300000);
 
     try {
       const response = await fetch(targetUrl, {
@@ -154,28 +156,36 @@ export const proxyController = {
         return res.json(data);
       }
     } catch (err) {
+      clearTimeout(connectTimeout);
       const latencyMs = Date.now() - startTime;
       dbService.logAudit({
         key_id: apiKeyInfo?.id,
         endpoint: '/chat/completions',
         model: requestedModel,
         has_images: hasImages,
-        status_code: 502,
+        status_code: timedOut ? 504 : 502,
         latency_ms: latencyMs
       });
 
-      if (err.name === 'AbortError') {
-        return; // Client đã tự hủy request
+      // Nếu client tự ngắt kết nối (đóng tab trình duyệt)
+      if (res.writableEnded || (err.name === 'AbortError' && !timedOut)) {
+        return;
       }
 
       console.error('Lỗi kết nối Local LLM:', err.message);
-      return res.status(502).json({
-        error: {
-          message: `Không thể kết nối hoặc nhận phản hồi từ Local LLM (${config.llmBackendUrl}): ${err.message}`,
-          type: 'backend_connection_error',
-          code: 'bad_gateway'
-        }
-      });
+      if (!res.headersSent) {
+        return res.status(timedOut ? 504 : 502).json({
+          error: {
+            message: timedOut
+              ? `Local LLM (${config.llmBackendUrl}) không kịp phản hồi trong 5 phút.`
+              : `Không thể kết nối hoặc nhận phản hồi từ Local LLM (${config.llmBackendUrl}): ${err.message}`,
+            type: timedOut ? 'gateway_timeout' : 'backend_connection_error',
+            code: timedOut ? 'timeout' : 'bad_gateway'
+          }
+        });
+      } else {
+        res.end();
+      }
     }
   },
 
